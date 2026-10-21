@@ -75,7 +75,7 @@ Untuk memastikan kebijakan hak akses berjalan konsisten pada runtime, dilakukan 
 - **Skenario Uji**: Akun dengan Role `NASABAH` mencoba menembak endpoint internal operator (`POST /api/deposits`) untuk melakukan setoran mandiri.
 - **Hasil Runtime**: Spring Security berhasil mengintercept request secara real-time dan mengembalikan respons **403 Forbidden** dengan pesan *"Anda tidak memiliki akses untuk aksi ini"*. Hal ini memvalidasi efektivitas isolasi tugas (*segregation of duties*) antar-role dalam sistem.
 
-## Deteksi Anomali (Rule Engine)
+## Deteksi Anomali (Rule Engine) (Minggu 5)
 
 CERMAT memakai pendekatan **post-transaction monitoring**: transaksi tetap dieksekusi, lalu dievaluasi
 oleh serangkaian aturan di dalam transaksi database yang sama. Jika ada aturan yang terpicu, transaksi
