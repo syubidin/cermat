@@ -1,6 +1,7 @@
 package id.cermat.transaction;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -22,6 +23,10 @@ import id.cermat.idempotency.IdempotencyKeyRepository;
 import id.cermat.ledger.Direction;
 import id.cermat.ledger.LedgerEntry;
 import id.cermat.ledger.LedgerEntryRepository;
+import id.cermat.rule.FraudFlagRepository;
+import id.cermat.rule.RuleContext;
+import id.cermat.rule.RuleEngine;
+import id.cermat.rule.RuleHit;
 
 @Service
 public class TransferService {
@@ -34,20 +39,24 @@ public class TransferService {
     private final LedgerEntryRepository entries;
     private final IdempotencyKeyRepository idempotencyKeys;
     private final AuditService audit;
+    private final RuleEngine ruleEngine;
+    private final FraudFlagRepository fraudFlags;
 
     public TransferService(AccountRepository accounts, LedgerTransactionRepository transactions,
                            LedgerEntryRepository entries, IdempotencyKeyRepository idempotencyKeys,
-                           AuditService audit) {
+                           AuditService audit, RuleEngine ruleEngine, FraudFlagRepository fraudFlags) {
         this.accounts = accounts;
         this.transactions = transactions;
         this.entries = entries;
         this.idempotencyKeys = idempotencyKeys;
         this.audit = audit;
+        this.ruleEngine = ruleEngine;
+        this.fraudFlags = fraudFlags;
     }
 
     /**
-     * Seluruh langkah berjalan dalam SATU transaksi database (atomic), termasuk jejak audit.
-     * Jika gagal di tengah jalan, key idempotency dan jejak audit ikut batal.
+     * Seluruh langkah berjalan dalam SATU transaksi database (atomic), termasuk evaluasi aturan,
+     * flag fraud, dan jejak audit. Gagal di tengah jalan = semuanya batal.
      */
     @Transactional
     public TransferResult transfer(String idemKey, UUID fromId, UUID toId,
@@ -80,17 +89,31 @@ public class TransferService {
         if (to.getStatus() != AccountStatus.ACTIVE) throw new BusinessException("Rekening tujuan tidak aktif");
         if (!from.getCurrency().equals(to.getCurrency())) throw new BusinessException("Mata uang berbeda");
 
-        // 4) Ubah saldo (debit melempar BusinessException jika saldo kurang).
+        // 4) Deteksi anomali (post-transaction monitoring): transaksi TETAP berjalan, hanya ditandai.
+        //    Setoran dari kas sistem tidak dipantau. Rekening asal sedang terkunci, jadi hitungan
+        //    riwayat (VELOCITY) konsisten walau ada request paralel dari rekening yang sama.
+        List<RuleHit> hits = fromId.equals(SYSTEM_CASH_ID)
+                ? List.of()
+                : ruleEngine.evaluate(new RuleContext(fromId, toId, amount, Instant.now()));
+        TxStatus status = hits.isEmpty() ? TxStatus.SUCCESS : TxStatus.FLAGGED;
+
+        // 5) Ubah saldo (debit melempar BusinessException jika saldo kurang).
         from.debit(amount);
         to.credit(amount);
 
-        // 5) Tulis transaksi + dua entri ledger (debit dan kredit selalu seimbang).
+        // 6) Tulis transaksi + dua entri ledger (debit dan kredit selalu seimbang).
         LedgerTransaction tx = transactions.saveAndFlush(new LedgerTransaction(
-                newReference(), idemKey, fromId, toId, amount, TxStatus.SUCCESS, description));
+                newReference(), idemKey, fromId, toId, amount, status, description));
         entries.save(new LedgerEntry(tx.getId(), fromId, Direction.DEBIT, amount, from.getBalance()));
         entries.save(new LedgerEntry(tx.getId(), toId, Direction.CREDIT, amount, to.getBalance()));
 
-        // 6) Jejak audit di transaksi yang sama.
+        // 7) Flag fraud + jejak audit, di transaksi yang sama.
+        if (!hits.isEmpty()) {
+            fraudFlags.insert(tx.getId(), hits);
+            audit.record("TRANSACTION_FLAGGED", "transaction", tx.getId().toString(), Map.of(
+                    "rules", hits.stream().map(RuleHit::ruleCode).toList(),
+                    "amount", amount.toPlainString()));
+        }
         audit.record(fromId.equals(SYSTEM_CASH_ID) ? "DEPOSIT" : "TRANSFER", "transaction",
                 tx.getId().toString(),
                 Map.of("referenceNo", tx.getReferenceNo(), "from", fromId.toString(),

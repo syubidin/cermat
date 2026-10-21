@@ -74,3 +74,36 @@ Sistem kini menerapkan arsitektur *Zero-Trust* secara default di seluruh endpoin
 Untuk memastikan kebijakan hak akses berjalan konsisten pada runtime, dilakukan simulasi bypass hak akses menggunakan Swagger UI:
 - **Skenario Uji**: Akun dengan Role `NASABAH` mencoba menembak endpoint internal operator (`POST /api/deposits`) untuk melakukan setoran mandiri.
 - **Hasil Runtime**: Spring Security berhasil mengintercept request secara real-time dan mengembalikan respons **403 Forbidden** dengan pesan *"Anda tidak memiliki akses untuk aksi ini"*. Hal ini memvalidasi efektivitas isolasi tugas (*segregation of duties*) antar-role dalam sistem.
+
+## Deteksi Anomali (Rule Engine)
+
+CERMAT memakai pendekatan **post-transaction monitoring**: transaksi tetap dieksekusi, lalu dievaluasi
+oleh serangkaian aturan di dalam transaksi database yang sama. Jika ada aturan yang terpicu, transaksi
+ditandai `FLAGGED` dan masuk antrean tinjauan operator.
+
+| Aturan | Pemicu | Parameter default |
+|---|---|---|
+| `HIGH_AMOUNT` | Nominal melebihi batas | `max_amount = 100.000.000` |
+| `VELOCITY` | Terlalu banyak transfer keluar dalam jendela waktu | `max_count = 5`, `window_seconds = 60` |
+| `NEW_PAYEE_BIG` | Penerima baru dengan nominal besar | `min_amount = 20.000.000` |
+
+Keputusan desain:
+- **Logika di kode, parameter di database.** Operator mengubah ambang batas atau menonaktifkan aturan lewat
+  `PUT /api/rules/{code}` tanpa deploy ulang. Setiap perubahan tercatat di audit log (nilai sebelum dan sesudah).
+- **Klien tidak melihat status `FLAGGED`.** Memberi tahu pelaku bahwa ia terdeteksi hanya membantunya menghindar.
+- **Evaluasi VELOCITY aman dari balapan** karena rekening asal sudah dikunci (`SELECT ... FOR UPDATE`) sebelum aturan dijalankan.
+- **Parameter rusak = arahkan ke tinjauan manusia**, bukan meloloskan transaksi secara diam-diam.
+- **Setoran dari kas sistem tidak dipantau.**
+- **Tinjauan:** `CLEARED` (wajar) atau `CONFIRMED` (fraud; rekening pengirim dibekukan). Tinjauan atomik: dua operator
+  yang meninjau bersamaan tidak bisa sama-sama berhasil.
+
+## Future Roadmap (Rencana Pengembangan Lanjutan)
+
+- **Pre-transaction hold (Opsi B):** transaksi mencurigakan ditahan berstatus `PENDING` dan baru dieksekusi setelah
+  disetujui operator. Lebih ketat, tetapi membutuhkan status dana tertahan (*pending/hold*) dan alur kedaluwarsa.
+- **Maker-checker untuk perubahan aturan:** perubahan ambang batas harus disetujui operator kedua.
+- **Pemantauan setoran** dan pelaporan transaksi mencurigakan ke format regulator.
+- **Cache aturan** dengan invalidasi saat operator mengubah aturan (saat ini dibaca dari DB tiap transfer).
+- **Refresh token dan pencabutan token**, serta **rate limiting login**.
+- **Memecah rekening kas sistem** untuk menghilangkan hot row, dibuktikan dengan benchmark.
+- **Pembersihan idempotency key kedaluwarsa** lewat job terjadwal.

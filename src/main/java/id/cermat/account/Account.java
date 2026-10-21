@@ -65,6 +65,11 @@ public class Account {
         balance = balance.add(amount);
     }
 
+    /** Perubahan status hanya lewat AccountAdminService (dengan kunci baris + audit). */
+    public void freeze() { this.status = AccountStatus.FROZEN; }
+
+    public void unfreeze() { this.status = AccountStatus.ACTIVE; }
+
     public UUID getId() { return id; }
     public String getAccountNumber() { return accountNumber; }
     public UUID getOwnerId() { return ownerId; }

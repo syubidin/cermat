@@ -41,7 +41,12 @@ public class TransferController {
                                    BigDecimal amount, TxStatus status, Instant createdAt) {
         static TransferResponse from(LedgerTransaction t) {
             return new TransferResponse(t.getId(), t.getReferenceNo(), t.getFromAccountId(),
-                    t.getToAccountId(), t.getAmount(), t.getStatus(), t.getCreatedAt());
+                    t.getToAccountId(), t.getAmount(), publicStatus(t.getStatus()), t.getCreatedAt());
+        }
+
+        /** FLAGGED tidak diperlihatkan ke klien: memberi tahu pelaku bahwa ia terdeteksi justru merugikan. */
+        private static TxStatus publicStatus(TxStatus s) {
+            return s == TxStatus.FLAGGED ? TxStatus.SUCCESS : s;
         }
     }
 
