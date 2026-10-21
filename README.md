@@ -44,3 +44,27 @@ Dalam fase pengembangan, dilakukan pengujian untuk melihat perilaku sistem di ba
 - **Deteksi Deadlock**: Muncul indikasi `deadlock` pada transaksi bolak-balik (A⇄B) yang berjalan bersamaan karena hilangnya urutan penguncian baris data.
 - **Solusi**: Mengaktifkan kembali kombinasi *Pessimistic Write Lock* dengan urutan penguncian tetap (`ORDER BY id`) terbukti menyelesaikan kedua kendala di atas secara total, membuat seluruh 17 *automated tests* kembali lulus sempurna (Hijau).
 
+
+## Implementasi Keamanan & Audit Log (Minggu 4)
+
+Sistem kini menerapkan arsitektur *Zero-Trust* secara default di seluruh endpoint API dengan pemetaan kepatuhan terhadap standar **OWASP API Security Top 10**:
+
+1. **OWASP API1: Broken Object Level Authorization (BOLA/IDOR)**
+   - Proteksi ketat pada pengaksesan rekening antar-nasabah. Jika Nasabah A mencoba menembak ID Rekening milik Nasabah B, sistem sengaja merespons dengan kode **404 Not Found (bukan 403 Forbidden)** untuk mencegah kebocoran informasi keberadaan data (*resource enumeration*). Dibuktikan via pengujian `nasabah_cannotAccessAnotherCustomersAccount_idor`.
+
+2. **OWASP API2: Broken Authentication**
+   - Penanganan brute-force pada login. Pesan kegagalan login disamakan baik untuk kondisi "Username Tidak Ditemukan" maupun "Password Salah". Proses enkripsi *BCrypt* tetap dieksekusi secara artifisial meskipun pengguna tidak terdaftar di database untuk menjaga konsistensi waktu respons (*timing attack protection*).
+
+3. **OWASP API3: Broken Object Property Level Authorization (Mass Assignment)**
+   - Endpoint registrasi mandiri nasabah diproteksi penuh dari manipulasi properti request body. Upaya menyisipkan parameter `"role": "OPERATOR"` atau `"role": "AUDITOR"` secara ilegal akan diabaikan dan otomatis gagal melalui skenario uji `register_cannotEscalateRole_viaRequestBody`.
+
+4. **OWASP A09: Security Logging and Monitoring**
+   - Implementasi tabel `audit_logs` yang bersifat *append-only* (dilindungi trigger database) untuk mencatat aktivitas krusial (*Actor, Action, Timestamp, Source IP*). 
+   - **Desain Transaksi Audit**:
+     - *Atomik dengan Bisnis*: Log sukses (`TRANSFER`, `DEPOSIT`) dibungkus dalam transaksi database yang sama sehingga ikut ter-rollback jika operasi gagal (mencegah log palsu).
+     - *Transaksi Terpisah (Requires New)*: Log krusial kegagalan (`REJECTED`, `ACCESS_DENIED`, `LOGIN_FAILED`) dipaksa tetap tersimpan ke database walaupun transaksi utama mengalami kegagalan/rollback untuk kebutuhan forensik keamanan.
+
+### Keterbatasan Keamanan Sistem saat Ini (Trade-off)
+- **Mekanisme Brute Force**: Belum mengimplementasikan *rate limiting* atau penguncian akun sementara pada kegagalan login berulang.
+- **Stateless Token Invalidation**: Menggunakan arsitektur JWT *stateless* murni dengan masa aktif 30 menit. Token yang aktif tidak dapat dicabut paksa dari sisi server sebelum masa kedaluwarsa habis (*blacklist* belum diterapkan).
+- **Verifikasi Asal IP**: IP Client dibaca langsung dari properti koneksi dasar (`remoteAddr`) tanpa memvalidasi header `X-Forwarded-For` yang rentan terhadap *spoofing* di belakang struktur *reverse proxy*.
