@@ -36,3 +36,11 @@ Sistem telah ditingkatkan untuk menangani traffic tinggi secara aman melalui:
 Sebagai bentuk transparansi arsitektur, sistem saat ini memiliki batasan yang disengaja:
 - **Hot Row Problem pada `KAS-SISTEM`**: Karena semua setoran mengunci baris rekening `KAS-SISTEM` internal (`SELECT ... FOR UPDATE`), proses setoran global akan mengantre satu per satu. Solusi produksi: Memecah (*sharding*) kas sistem menjadi beberapa akun terpisah untuk membagi beban penguncian.
 - **Masa Aktif Idempotency Key**: Key yang tersimpan belum memiliki masa kedaluwarsa otomatis. Solusi produksi: Menambahkan kolom *timestamp* dan membuat background job pembersih (misal menghapus key yang berusia lebih dari 24 jam).
+
+
+### Hasil Eksperimen Validasi Konkurensi (Studi Kasus Locking)
+Dalam fase pengembangan, dilakukan pengujian untuk melihat perilaku sistem di bawah tekanan traffic tinggi dengan menonaktifkan `@Lock(LockModeType.PESSIMISTIC_WRITE)` pada `AccountRepository`:
+- **Kegagalan Optimistic Lock**: Sistem memicu `ObjectOptimisticLockingFailureException` secara masif pada pengujian 150 transfer simultan. Walaupun mekanisme `@Version` berhasil menjaga integritas saldo agar tidak minus, efek sampingnya adalah tingginya angka kegagalan transaksi yang merugikan pengguna.
+- **Deteksi Deadlock**: Muncul indikasi `deadlock` pada transaksi bolak-balik (A⇄B) yang berjalan bersamaan karena hilangnya urutan penguncian baris data.
+- **Solusi**: Mengaktifkan kembali kombinasi *Pessimistic Write Lock* dengan urutan penguncian tetap (`ORDER BY id`) terbukti menyelesaikan kedua kendala di atas secara total, membuat seluruh 17 *automated tests* kembali lulus sempurna (Hijau).
+
