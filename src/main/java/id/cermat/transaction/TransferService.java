@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import id.cermat.account.Account;
 import id.cermat.account.AccountRepository;
 import id.cermat.account.AccountStatus;
+import id.cermat.audit.AuditService;
 import id.cermat.common.BusinessException;
 import id.cermat.common.NotFoundException;
 import id.cermat.idempotency.Hashing;
@@ -32,18 +33,21 @@ public class TransferService {
     private final LedgerTransactionRepository transactions;
     private final LedgerEntryRepository entries;
     private final IdempotencyKeyRepository idempotencyKeys;
+    private final AuditService audit;
 
     public TransferService(AccountRepository accounts, LedgerTransactionRepository transactions,
-                           LedgerEntryRepository entries, IdempotencyKeyRepository idempotencyKeys) {
+                           LedgerEntryRepository entries, IdempotencyKeyRepository idempotencyKeys,
+                           AuditService audit) {
         this.accounts = accounts;
         this.transactions = transactions;
         this.entries = entries;
         this.idempotencyKeys = idempotencyKeys;
+        this.audit = audit;
     }
 
     /**
-     * Seluruh langkah berjalan dalam SATU transaksi database (atomic).
-     * Jika gagal di tengah jalan, key idempotency ikut batal sehingga request boleh diulang.
+     * Seluruh langkah berjalan dalam SATU transaksi database (atomic), termasuk jejak audit.
+     * Jika gagal di tengah jalan, key idempotency dan jejak audit ikut batal.
      */
     @Transactional
     public TransferResult transfer(String idemKey, UUID fromId, UUID toId,
@@ -85,6 +89,12 @@ public class TransferService {
                 newReference(), idemKey, fromId, toId, amount, TxStatus.SUCCESS, description));
         entries.save(new LedgerEntry(tx.getId(), fromId, Direction.DEBIT, amount, from.getBalance()));
         entries.save(new LedgerEntry(tx.getId(), toId, Direction.CREDIT, amount, to.getBalance()));
+
+        // 6) Jejak audit di transaksi yang sama.
+        audit.record(fromId.equals(SYSTEM_CASH_ID) ? "DEPOSIT" : "TRANSFER", "transaction",
+                tx.getId().toString(),
+                Map.of("referenceNo", tx.getReferenceNo(), "from", fromId.toString(),
+                        "to", toId.toString(), "amount", amount.toPlainString()));
         return new TransferResult(tx, false);
     }
 

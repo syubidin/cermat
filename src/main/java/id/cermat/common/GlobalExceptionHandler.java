@@ -1,22 +1,35 @@
 package id.cermat.common;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import id.cermat.audit.AuditService;
+import jakarta.servlet.http.HttpServletRequest;
+
 /** Satu format error yang konsisten untuk seluruh API. */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
     public record ApiError(int status, String error, String message, Instant timestamp) {}
+
+    private final AuditService audit;
+
+    public GlobalExceptionHandler(AuditService audit) { this.audit = audit; }
 
     @ExceptionHandler(NotFoundException.class)
     public ResponseEntity<ApiError> notFound(NotFoundException e) {
@@ -28,8 +41,22 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.CONFLICT, e.getMessage());
     }
 
+    @ExceptionHandler(UnauthorizedException.class)
+    public ResponseEntity<ApiError> unauthorized(UnauthorizedException e) {
+        return build(HttpStatus.UNAUTHORIZED, e.getMessage());
+    }
+
+    /** 403. Pesan ke klien sengaja generik; alasan sebenarnya hanya masuk audit log. */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiError> forbidden(AccessDeniedException e, HttpServletRequest req) {
+        auditQuietly(req, "ACCESS_DENIED", e.getMessage());
+        return build(HttpStatus.FORBIDDEN, "Anda tidak memiliki akses untuk aksi ini");
+    }
+
     @ExceptionHandler(BusinessException.class)
-    public ResponseEntity<ApiError> business(BusinessException e) {
+    public ResponseEntity<ApiError> business(BusinessException e, HttpServletRequest req) {
+        // Transaksi bisnis sudah di-rollback, tetapi penolakan tetap tercatat (transaksi audit terpisah).
+        auditQuietly(req, "REJECTED", e.getMessage());
         return build(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
     }
 
@@ -57,10 +84,19 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.CONFLICT, "Data sedang diubah proses lain, silakan coba lagi");
     }
 
-    /** Jaring pengaman: pelanggaran constraint unik di DB (mis. dua request dengan key sama bersamaan). */
+    /** Jaring pengaman: pelanggaran constraint unik di DB. */
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ApiError> integrity(DataIntegrityViolationException e) {
         return build(HttpStatus.CONFLICT, "Request bentrok dengan data yang sudah ada (kemungkinan duplikat)");
+    }
+
+    private void auditQuietly(HttpServletRequest req, String action, String reason) {
+        try {
+            audit.recordIndependent(null, action, "request", req.getRequestURI(),
+                    Map.of("method", req.getMethod(), "reason", String.valueOf(reason)));
+        } catch (Exception ex) {
+            log.warn("Gagal menulis audit log: {}", ex.getMessage());
+        }
     }
 
     private ResponseEntity<ApiError> build(HttpStatus status, String message) {
