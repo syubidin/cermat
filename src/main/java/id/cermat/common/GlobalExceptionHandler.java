@@ -3,9 +3,11 @@ package id.cermat.common;
 import java.time.Instant;
 import java.util.stream.Collectors;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -25,12 +27,33 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.CONFLICT, e.getMessage());
     }
 
+    @ExceptionHandler(BusinessException.class)
+    public ResponseEntity<ApiError> business(BusinessException e) {
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiError> invalid(MethodArgumentNotValidException e) {
         String msg = e.getBindingResult().getFieldErrors().stream()
                 .map(f -> f.getField() + ": " + f.getDefaultMessage())
                 .collect(Collectors.joining("; "));
         return build(HttpStatus.BAD_REQUEST, msg);
+    }
+
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public ResponseEntity<ApiError> missingHeader(MissingRequestHeaderException e) {
+        return build(HttpStatus.BAD_REQUEST, "Header wajib tidak ada: " + e.getHeaderName());
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiError> badArgument(IllegalArgumentException e) {
+        return build(HttpStatus.BAD_REQUEST, e.getMessage());
+    }
+
+    /** Jaring pengaman: pelanggaran constraint unik di DB (mis. dua request dengan key sama bersamaan). */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiError> integrity(DataIntegrityViolationException e) {
+        return build(HttpStatus.CONFLICT, "Request bentrok dengan data yang sudah ada (kemungkinan duplikat)");
     }
 
     private ResponseEntity<ApiError> build(HttpStatus status, String message) {
