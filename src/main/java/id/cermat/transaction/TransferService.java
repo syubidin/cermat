@@ -14,7 +14,6 @@ import id.cermat.account.Account;
 import id.cermat.account.AccountRepository;
 import id.cermat.account.AccountStatus;
 import id.cermat.common.BusinessException;
-import id.cermat.common.ConflictException;
 import id.cermat.common.NotFoundException;
 import id.cermat.idempotency.Hashing;
 import id.cermat.idempotency.IdempotencyKey;
@@ -43,12 +42,12 @@ public class TransferService {
     }
 
     /**
-     * Seluruh langkah berjalan dalam SATU transaksi database:
-     * jika satu langkah gagal, semuanya dibatalkan (atomic).
+     * Seluruh langkah berjalan dalam SATU transaksi database (atomic).
+     * Jika gagal di tengah jalan, key idempotency ikut batal sehingga request boleh diulang.
      */
     @Transactional
-    public LedgerTransaction transfer(String idemKey, UUID fromId, UUID toId,
-                                      BigDecimal rawAmount, String description) {
+    public TransferResult transfer(String idemKey, UUID fromId, UUID toId,
+                                   BigDecimal rawAmount, String description) {
         if (idemKey == null || idemKey.isBlank() || idemKey.length() > 100) {
             throw new IllegalArgumentException("Idempotency-Key wajib diisi (maks 100 karakter)");
         }
@@ -56,13 +55,13 @@ public class TransferService {
             throw new BusinessException("Rekening asal dan tujuan tidak boleh sama");
         }
         BigDecimal amount = rawAmount.setScale(2);
+        String hash = Hashing.sha256(fromId + "|" + toId + "|" + amount.toPlainString()
+                + "|" + (description == null ? "" : description));
 
-        // 1) Catat idempotency key. (Minggu 3: replay respons lama + cek request_hash.)
-        if (idempotencyKeys.existsById(idemKey)) {
-            throw new ConflictException("Idempotency-Key sudah pernah dipakai: " + idemKey);
+        // 1) Klaim key secara atomik. Jika sudah ada: jawab ulang, JANGAN proses lagi.
+        if (idempotencyKeys.insertIfAbsent(idemKey, hash) == 0) {
+            return replay(idemKey, hash);
         }
-        String hash = Hashing.sha256(fromId + "|" + toId + "|" + amount.toPlainString());
-        idempotencyKeys.saveAndFlush(new IdempotencyKey(idemKey, hash));
 
         // 2) Kunci kedua rekening dengan urutan tetap, lalu baca saldo terbaru.
         List<Account> locked = accounts.lockAllByIdInOrderById(List.of(fromId, toId));
@@ -86,14 +85,25 @@ public class TransferService {
                 newReference(), idemKey, fromId, toId, amount, TxStatus.SUCCESS, description));
         entries.save(new LedgerEntry(tx.getId(), fromId, Direction.DEBIT, amount, from.getBalance()));
         entries.save(new LedgerEntry(tx.getId(), toId, Direction.CREDIT, amount, to.getBalance()));
-        return tx;
+        return new TransferResult(tx, false);
     }
 
     /** Setoran = transfer dari kas sistem ke rekening nasabah. */
     @Transactional
-    public LedgerTransaction deposit(String idemKey, UUID accountId, BigDecimal amount, String description) {
+    public TransferResult deposit(String idemKey, UUID accountId, BigDecimal amount, String description) {
         return transfer(idemKey, SYSTEM_CASH_ID, accountId, amount,
                 description == null ? "Setoran" : description);
+    }
+
+    private TransferResult replay(String idemKey, String hash) {
+        IdempotencyKey existing = idempotencyKeys.findById(idemKey)
+                .orElseThrow(() -> new IllegalStateException("Key hilang setelah konflik: " + idemKey));
+        if (!existing.getRequestHash().equals(hash)) {
+            throw new BusinessException("Idempotency-Key sudah dipakai untuk request yang berbeda");
+        }
+        LedgerTransaction tx = transactions.findByIdemKey(idemKey)
+                .orElseThrow(() -> new IllegalStateException("Transaksi untuk key tidak ditemukan: " + idemKey));
+        return new TransferResult(tx, true);
     }
 
     private String newReference() {

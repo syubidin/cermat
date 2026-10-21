@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -17,6 +18,8 @@ import jakarta.validation.constraints.Size;
 @RestController
 @RequestMapping("/api")
 public class TransferController {
+
+    public static final String REPLAY_HEADER = "Idempotent-Replayed";
 
     public record TransferRequest(
             @NotNull UUID fromAccountId,
@@ -41,21 +44,26 @@ public class TransferController {
 
     public TransferController(TransferService service) { this.service = service; }
 
-    @Operation(summary = "Transfer antar rekening (wajib header Idempotency-Key)")
+    @Operation(summary = "Transfer antar rekening",
+            description = "Wajib header Idempotency-Key. Request ulang dengan key dan isi yang sama "
+                    + "mengembalikan respons yang sama (header Idempotent-Replayed: true) tanpa memproses ulang.")
     @PostMapping("/transfers")
-    @ResponseStatus(HttpStatus.CREATED)
-    public TransferResponse transfer(@RequestHeader("Idempotency-Key") String idemKey,
-                                     @Valid @RequestBody TransferRequest req) {
-        return TransferResponse.from(service.transfer(
+    public ResponseEntity<TransferResponse> transfer(@RequestHeader("Idempotency-Key") String idemKey,
+                                                     @Valid @RequestBody TransferRequest req) {
+        return respond(service.transfer(
                 idemKey, req.fromAccountId(), req.toAccountId(), req.amount(), req.description()));
     }
 
     @Operation(summary = "Setoran dummy dari kas sistem (nanti khusus OPERATOR)")
     @PostMapping("/deposits")
-    @ResponseStatus(HttpStatus.CREATED)
-    public TransferResponse deposit(@RequestHeader("Idempotency-Key") String idemKey,
-                                    @Valid @RequestBody DepositRequest req) {
-        return TransferResponse.from(service.deposit(
-                idemKey, req.accountId(), req.amount(), req.description()));
+    public ResponseEntity<TransferResponse> deposit(@RequestHeader("Idempotency-Key") String idemKey,
+                                                    @Valid @RequestBody DepositRequest req) {
+        return respond(service.deposit(idemKey, req.accountId(), req.amount(), req.description()));
+    }
+
+    private ResponseEntity<TransferResponse> respond(TransferResult result) {
+        var builder = ResponseEntity.status(HttpStatus.CREATED);
+        if (result.replayed()) builder.header(REPLAY_HEADER, "true");
+        return builder.body(TransferResponse.from(result.transaction()));
     }
 }

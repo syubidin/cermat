@@ -121,16 +121,35 @@ class TransferApiTest {
     }
 
     @Test
-    void transfer_duplicateKey_isRejected_andNotAppliedTwice() throws Exception {
+    void transfer_duplicateKey_replaysSameResponse_andAppliesOnce() throws Exception {
+        String a = newAccount(), b = newAccount();
+        deposit(a, "10000").andExpect(status().isCreated());
+        String key = "trf-" + uid();
+
+        String first = transfer(a, b, "1000", key)
+                .andExpect(status().isCreated())
+                .andExpect(header().doesNotExist("Idempotent-Replayed"))
+                .andReturn().getResponse().getContentAsString();
+        String second = transfer(a, b, "1000", key)
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Idempotent-Replayed", "true"))
+                .andReturn().getResponse().getContentAsString();
+
+        assertEquals(json.readTree(first).get("id").asText(), json.readTree(second).get("id").asText());
+        assertBalance(a, "9000");   // hanya terpotong sekali
+        assertBalance(b, "1000");
+    }
+
+    @Test
+    void transfer_sameKeyDifferentPayload_returns422() throws Exception {
         String a = newAccount(), b = newAccount();
         deposit(a, "10000").andExpect(status().isCreated());
         String key = "trf-" + uid();
 
         transfer(a, b, "1000", key).andExpect(status().isCreated());
-        transfer(a, b, "1000", key).andExpect(status().isConflict());
+        transfer(a, b, "2000", key).andExpect(status().isUnprocessableEntity());
 
         assertBalance(a, "9000");
-        assertBalance(b, "1000");
     }
 
     @Test

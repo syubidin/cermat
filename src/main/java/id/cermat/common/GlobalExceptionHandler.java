@@ -6,6 +6,7 @@ import java.util.stream.Collectors;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -48,6 +49,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiError> badArgument(IllegalArgumentException e) {
         return build(HttpStatus.BAD_REQUEST, e.getMessage());
+    }
+
+    /** Dua proses mengubah baris yang sama bersamaan: klien aman untuk mencoba lagi. */
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<ApiError> optimistic(ObjectOptimisticLockingFailureException e) {
+        return build(HttpStatus.CONFLICT, "Data sedang diubah proses lain, silakan coba lagi");
     }
 
     /** Jaring pengaman: pelanggaran constraint unik di DB (mis. dua request dengan key sama bersamaan). */
