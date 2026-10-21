@@ -68,3 +68,9 @@ Sistem kini menerapkan arsitektur *Zero-Trust* secara default di seluruh endpoin
 - **Mekanisme Brute Force**: Belum mengimplementasikan *rate limiting* atau penguncian akun sementara pada kegagalan login berulang.
 - **Stateless Token Invalidation**: Menggunakan arsitektur JWT *stateless* murni dengan masa aktif 30 menit. Token yang aktif tidak dapat dicabut paksa dari sisi server sebelum masa kedaluwarsa habis (*blacklist* belum diterapkan).
 - **Verifikasi Asal IP**: IP Client dibaca langsung dari properti koneksi dasar (`remoteAddr`) tanpa memvalidasi header `X-Forwarded-For` yang rentan terhadap *spoofing* di belakang struktur *reverse proxy*.
+
+
+### Hasil Eksperimen Validasi RBAC (Role-Based Access Control)
+Untuk memastikan kebijakan hak akses berjalan konsisten pada runtime, dilakukan simulasi bypass hak akses menggunakan Swagger UI:
+- **Skenario Uji**: Akun dengan Role `NASABAH` mencoba menembak endpoint internal operator (`POST /api/deposits`) untuk melakukan setoran mandiri.
+- **Hasil Runtime**: Spring Security berhasil mengintercept request secara real-time dan mengembalikan respons **403 Forbidden** dengan pesan *"Anda tidak memiliki akses untuk aksi ini"*. Hal ini memvalidasi efektivitas isolasi tugas (*segregation of duties*) antar-role dalam sistem.
