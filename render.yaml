@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: cermat-api
+    runtime: docker
+    plan: free
+    dockerfilePath: Dockerfile
+    region: singapore # latency terendah untuk Indonesia
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: SPRING_DATASOURCE_URL
+        fromDatabase:
+          name: cermat-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: BOOTSTRAP_OPERATOR_PASSWORD
+        value: OperatorSecret123!
+      - key: BOOTSTRAP_AUDITOR_PASSWORD
+        value: AuditorSecret123!
+
+databases:
+  - name: cermat-db
+    plan: free
+    databaseName: cermat
+    user: postgres
+    region: singapore

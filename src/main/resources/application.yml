@@ -2,17 +2,19 @@ spring:
   application:
     name: cermat
   datasource:
-    url: jdbc:postgresql://localhost:5432/cermat
-    username: postgres
-    password: ${DB_PASSWORD:password_default_dev}   # untuk dev lokal saja
+    url: ${SPRING_DATASOURCE_URL:${DB_URL:jdbc:postgresql://localhost:5432/cermat}}
+    username: ${SPRING_DATASOURCE_USERNAME:${DB_USERNAME:postgres}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:password_default_dev}}   # default untuk dev lokal
   jpa:
     hibernate:
       ddl-auto: validate                # skema dikelola Flyway, bukan Hibernate
     open-in-view: false
   flyway:
     enabled: true
+
 server:
-  port: 8080
+  port: ${PORT:8080}
+
 cermat:
   jwt:
     secret: ${JWT_SECRET:dev-only-secret-please-change-this-32bytes-min!!}
