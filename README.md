@@ -99,7 +99,7 @@ Keputusan desain:
 
 ## Future Roadmap (Rencana Pengembangan Lanjutan)
 
-- **Pre-transaction hold (Opsi B):** transaksi mencurigakan ditahan berstatus `PENDING` dan baru dieksekusi setelah
+- **Pre-transaction hold:** transaksi mencurigakan ditahan berstatus `PENDING` dan baru dieksekusi setelah
   disetujui operator. Lebih ketat, tetapi membutuhkan status dana tertahan (*pending/hold*) dan alur kedaluwarsa.
 - **Maker-checker untuk perubahan aturan:** perubahan ambang batas harus disetujui operator kedua.
 - **Pemantauan setoran** dan pelaporan transaksi mencurigakan ke format regulator.
@@ -107,3 +107,37 @@ Keputusan desain:
 - **Refresh token dan pencabutan token**, serta **rate limiting login**.
 - **Memecah rekening kas sistem** untuk menghilangkan hot row, dibuktikan dengan benchmark.
 - **Pembersihan idempotency key kedaluwarsa** lewat job terjadwal.
+
+## Rekonsiliasi Otomatis (Minggu 6)
+
+Operator mengunggah file CSV laporan mitra, lalu CERMAT mencocokkannya dengan ledger internal untuk
+**satu rekening mitra (settlement) pada satu periode** (maksimal 31 hari, batas hari mengikuti WIB).
+
+Format CSV: kolom `reference_no` dan `amount` (urutan bebas, huruf besar/kecil bebas).
+
+| Hasil | Arti |
+|---|---|
+| `MATCH` | Referensi ada di kedua sisi dengan nominal sama |
+| `AMOUNT_DIFF` | Referensi ada di kedua sisi, nominal berbeda (ditampilkan selisihnya) |
+| `MISSING_INTERNAL` | Ada di file mitra, tidak ada di ledger kami |
+| `MISSING_PARTNER` | Ada di ledger kami, tidak ada di file mitra |
+| `DUPLICATE_PARTNER` | Referensi muncul lebih dari sekali di file mitra |
+
+Keamanan unggahan (file dari pihak luar tidak dipercaya):
+- **Batas ukuran 2 MB** dan **20.000 baris**, diperiksa di level server dan di service.
+- **Whitelist ketat** untuk `reference_no` (`A-Z 0-9 _ -`) dan `amount` (angka positif, maks 2 desimal).
+  Ini sekaligus menolak awalan `= + - @` yang dipakai pada serangan **CSV/formula injection**.
+- Nama file disanitasi, ekstensi wajib `.csv`, tidak ada file yang ditulis ke disk.
+- **File yang persis sama** (SHA-256) untuk rekening dan periode yang sama ditolak (409), mencegah proses ganda.
+- Seluruh proses atomik (batch + temuan + audit log dalam satu transaksi database).
+- Hanya OPERATOR yang boleh mengunggah. AUDITOR boleh membaca hasilnya.
+
+Keterbatasan yang diketahui: belum ada penanganan *cut-off* (transaksi yang jatuh di tepi periode antara dua sistem),
+belum ada ekspor laporan ke CSV/PDF, dan belum ada alur tindak lanjut per temuan.
+
+## Future Roadmap (tambahan)
+- **Cut-off handling:** tandai selisih yang disebabkan perbedaan waktu pencatatan di tepi periode.
+- **Ekspor laporan temuan** ke CSV (dengan sanitasi sel agar aman dibuka di Excel).
+- **Alur tindak lanjut** per temuan (assign, catatan, status selesai).
+- **Pencocokan jamak** (satu setoran mitra untuk beberapa transaksi) dan toleransi selisih.
+- **Unggah asinkron** untuk file sangat besar.
