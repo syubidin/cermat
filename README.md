@@ -187,7 +187,7 @@ Eksekusi pengujian menghasilkan cakupan kode logika utama menyentuh **92% Code C
 
 <div align="center">
   <img src="docs/screenshots/jacoco-coverage-report.png" alt="JaCoCo Code Coverage Report" width="90%">
-  <p><em>Bukti laporan JaCoCo: 104 pengujian unit, integrasi, dan stress-test berjalan 100% hijau.</em></p>
+  <p><em>Bukti laporan JaCoCo: 104 pengujian unit, integrasi, dan stress-test berjalan 92% hijau.</em></p>
 </div>
 
 ---
