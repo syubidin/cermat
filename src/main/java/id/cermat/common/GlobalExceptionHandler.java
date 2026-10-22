@@ -15,6 +15,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import id.cermat.audit.AuditService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -82,6 +83,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
     public ResponseEntity<ApiError> optimistic(ObjectOptimisticLockingFailureException e) {
         return build(HttpStatus.CONFLICT, "Data sedang diubah proses lain, silakan coba lagi");
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiError> tooLarge(MaxUploadSizeExceededException e) {
+        return build(HttpStatus.PAYLOAD_TOO_LARGE, "Ukuran file melebihi batas 2 MB");
     }
 
     /** Jaring pengaman: pelanggaran constraint unik di DB. */
