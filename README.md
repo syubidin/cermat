@@ -1,189 +1,129 @@
 # CERMAT
+
 **C**atatan **E**lektronik, **R**ekonsiliasi, **M**utasi, **A**udit, **T**ransaksi
 
 > Setiap rupiah tercatat, tidak ada yang selisih.
 
-Mini core-banking ledger: double-entry, idempotency, concurrency control,
-deteksi anomali berbasis aturan, dan rekonsiliasi otomatis.
+![CI](https://github.com/syubidin/<REPO>/actions/workflows/ci.yml/badge.svg)
 
-## Menjalankan (lokal)
-1. Jalankan PostgreSQL portable, lalu buat database: `createdb -U postgres cermat`
-2. `mvn spring-boot:run`
-3. Buka http://localhost:8080/swagger-ui.html
+CERMAT adalah mini core-banking ledger yang mensimulasikan masalah inti sistem pembayaran:
+uang tidak boleh ganda, hilang, atau salah. Seluruh data adalah data dummy.
 
-> Seluruh data adalah data dummy.
+## Fitur
+- **Ledger double-entry append-only**: debit dan kredit selalu seimbang; tidak bisa diubah/dihapus (trigger database)
+- **Idempotency key**: request ganda hanya diproses sekali, termasuk saat dikirim bersamaan
+- **Concurrency control**: pessimistic locking dengan urutan kunci tetap (tanpa deadlock)
+- **Deteksi anomali**: aturan yang parameternya bisa diubah operator tanpa deploy ulang, alur tinjauan, pembekuan rekening
+- **Rekonsiliasi otomatis**: unggah CSV mitra, laporan cocok / selisih / hilang / ganda
+- **JWT + 3 role** (nasabah, operator, auditor), **audit log** append-only, pembatas login
 
-## Jaminan Integritas Sistem Keuangan (Minggu 2)
+## Tech stack
+Java 17, Spring Boot 3.3, Spring Security (JWT), PostgreSQL, Flyway, Maven, springdoc (Swagger UI),
+JUnit 5, Mockito, JaCoCo, Git. Tanpa Docker; ringan untuk laptop spesifikasi rendah.
 
-Sistem perbankan ini mengimplementasikan kepatuhan ketat terhadap standar akuntansi komersial melalui pengujian otomatis menyeluruh:
+## Linimasa Pengerjaan (Development Timeline)
+Proyek ini diselesaikan secara inkremental dalam waktu 8 minggu dengan fokus pada keandalan data dan pertahanan arsitektur:
+*   **Minggu 0-1: Fondasi Ledger & Skema Data**
+    *   Inisialisasi project Spring Boot portable tanpa install di drive `C:\`.
+    *   Pembuatan skema database relasional awal dan tabel `users` serta `accounts` via Flyway.
+    *   Implementasi ledger dasar berbasis arsitektur *double-entry bookkeeping* (Debit/Kredit).
+*   **Minggu 2: Mekanisme Inti Transaksi & Invarian Keuangan**
+    *   Penerapan mutasi saldo append-only terproteksi trigger database (data tidak bisa di-update/delete).
+    *   Pembuatan akun `KAS-SISTEM` internal sebagai generator likuiditas setoran (deposit).
+    *   Implementasi pengujian otomatis `globalInvariants_hold` untuk membuktikan jumlah sirkulasi saldo global bernilai tepat nol (`0`).
+*   **Minggu 3: Idempotensi Atomik & Kontrol Konkurensi**
+    *   Penyelesaian masalah *race condition* penarikan ganda via operasi `INSERT ... ON CONFLICT DO NOTHING`.
+    *   Penerapan *Pessimistic Write Lock* (`SELECT ... FOR UPDATE`) dengan urutan kunci tetap (`ORDER BY id`) untuk memblokir celah *deadlock* transaksi konkuren.
+*   **Minggu 4: Hardening Keamanan Terdistribusi (Owasp API & JWT)**
+    *   Implementasi *Zero-Trust API* berbasis Stateless JWT Authentication (HS256).
+    *   Penyusunan kontrol akses berbasis peran (Nasabah, Operator, Auditor).
+    *   Proteksi celah kerentanan OWASP API Security (Mitigasi BOLA/IDOR dengan respon 404, proteksi Mass Assignment, dan Audit Log terpisah).
+*   **Minggu 5: Rule Engine Deteksi Fraud & Kepatuhan Operasional**
+    *   Pembangunan modul *Post-Transaction Monitoring* dengan evaluasi aturan runtime (`HIGH_AMOUNT`, `VELOCITY`, `NEW_PAYEE_BIG`) tanpa harus deploy ulang aplikasi.
+    *   Fitur pembekuan rekening otomatis (`FROZEN`) dan interseptor transaksi atomik.
+*   **Minggu 6: Mesin Rekonsiliasi Otomatis (File Upload)**
+    *   Implementasi sistem pencocokan mutasi rekening eksternal via berkas `.csv` (Apache Commons CSV).
+    *   Sistem proteksi *Formula Injection* via whitelisting karakter data dan anti-duplikasi pemrosesan via kalkulasi berkas hash SHA-256.
+*   **Minggu 7: Pengerasan Skalabilitas (Cash Sharding & Rate Limiting)**
+    *   Optimasi masalah *Hot Row contention* dengan memecah rekening kas terpusat menjadi 16 akun ter-shard dinamis.
+    *   Implementasi *Sliding Window Rate Limiter* di level memori sebelum eksekusi BCrypt untuk menghemat resource CPU.
+*   **Minggu 8: Penutupan Piramida Pengujian & Dokumentasi Final**
+    *   Penulisan 44 unit test murni menggunakan Mockito framework.
+    *   Generasi laporan visual cakupan kode (*Code Coverage*) via JaCoCo plugin dengan target pemenuhan >70% pada komponen logika utama.
 
-1. **Global Invariants Validation (`globalInvariants_hold`)**:
-   - **Keseimbangan Nol**: Jumlah seluruh saldo rekening (termasuk `KAS-SISTEM` internal) selalu tepat bernilai `0`. Uang tidak dapat tercipta atau hilang dari sistem secara gaib.
-   - **Validitas Debit/Kredit**: Nilai total transaksi debit terbukti secara matematis selalu sama dengan total transaksi kredit.
-   - **Rekonsiliasi Buku Besar**: Saldo akhir setiap rekening selalu sama dengan kalkulasi akumulatif riwayat entri ledger-nya.
+## Menjalankan
+Prasyarat: JDK 17, Maven, PostgreSQL (versi portable juga bisa).
+```
+createdb -U postgres cermat
+createdb -U postgres cermat_test
 
-2. **Buku Besar Append-Only (`ledger_isAppendOnly`)**:
-   - Sistem menjamin bahwa entri transaksi yang sudah tercatat di dalam Ledger bersifat permanen. Segala bentuk modifikasi (UPDATE) atau penghapusan (DELETE) data ledger akan ditolak langsung di level database.
+# opsional: membuat user operator dan auditor pertama (jangan commit password)
+set BOOTSTRAP_OPERATOR_PASSWORD=<password-kuat>
+set BOOTSTRAP_AUDITOR_PASSWORD=<password-kuat>
 
-## Mekanisme Idempotensi & Konkurensi Tingkat Lanjut (Minggu 3)
+mvn spring-boot:run
+```
+Buka http://localhost:8080/swagger-ui.html, daftar lewat `/api/auth/register`, login, lalu klik **Authorize**.
 
-Sistem telah ditingkatkan untuk menangani traffic tinggi secara aman melalui:
-1. **Idempotency Replay (201 Created)**: Request dengan `Idempotency-Key` sama dan payload sama tidak lagi ditolak dengan 409, melainkan mengembalikan respons sukses yang sama persis beserta header `Idempotent-Replayed: true` tanpa memindahkan saldo lagi.
-2. **Atomic Key Claim**: Menggunakan operasi database `INSERT ... ON CONFLICT DO NOTHING` untuk mencegah celah waktu (*race condition*) pada pengecekan key.
-3. **Pertahanan Berlapis Konkurensi**: Lolos 5 uji konkurensi ekstrem (150 transfer simultan, penanganan deadlock transfer bolak-balik A⇄B, dan 20 request replay bersamaan).
+## Pengujian
+```
+mvn clean test
+```
+- `104` test: integrasi API, konkurensi, keamanan, dan unit test (Mockito) untuk logika inti
+- Laporan coverage: `target/site/jacoco/index.html` (coverage keseluruhan `92%`)
 
-### Analisis Batasan Sistem & Trade-off (Production Readiness)
-Sebagai bentuk transparansi arsitektur, sistem saat ini memiliki batasan yang disengaja:
-- **Hot Row Problem pada `KAS-SISTEM`**: Karena semua setoran mengunci baris rekening `KAS-SISTEM` internal (`SELECT ... FOR UPDATE`), proses setoran global akan mengantre satu per satu. Solusi produksi: Memecah (*sharding*) kas sistem menjadi beberapa akun terpisah untuk membagi beban penguncian.
-- **Masa Aktif Idempotency Key**: Key yang tersimpan belum memiliki masa kedaluwarsa otomatis. Solusi produksi: Menambahkan kolom *timestamp* dan membuat background job pembersih (misal menghapus key yang berusia lebih dari 24 jam).
+Bukti yang dihasilkan test:
+- 150 transfer bersamaan dari saldo yang cukup untuk 100: tepat 100 sukses, 50 ditolak, saldo tidak pernah minus
+- 100 transfer dua arah bersamaan: tanpa deadlock
+- 20 request identik (key sama) bersamaan: tepat 1 yang memproses
+- Jumlah seluruh saldo selalu 0; saldo setiap rekening sama dengan hasil menjumlahkan ulang ledger
 
-
-### Hasil Eksperimen Validasi Konkurensi (Studi Kasus Locking)
-Dalam fase pengembangan, dilakukan pengujian untuk melihat perilaku sistem di bawah tekanan traffic tinggi dengan menonaktifkan `@Lock(LockModeType.PESSIMISTIC_WRITE)` pada `AccountRepository`:
-- **Kegagalan Optimistic Lock**: Sistem memicu `ObjectOptimisticLockingFailureException` secara masif pada pengujian 150 transfer simultan. Walaupun mekanisme `@Version` berhasil menjaga integritas saldo agar tidak minus, efek sampingnya adalah tingginya angka kegagalan transaksi yang merugikan pengguna.
-- **Deteksi Deadlock**: Muncul indikasi `deadlock` pada transaksi bolak-balik (A⇄B) yang berjalan bersamaan karena hilangnya urutan penguncian baris data.
-- **Solusi**: Mengaktifkan kembali kombinasi *Pessimistic Write Lock* dengan urutan penguncian tetap (`ORDER BY id`) terbukti menyelesaikan kedua kendala di atas secara total, membuat seluruh 17 *automated tests* kembali lulus sempurna (Hijau).
-
-
-## Implementasi Keamanan & Audit Log (Minggu 4)
-
-Sistem kini menerapkan arsitektur *Zero-Trust* secara default di seluruh endpoint API dengan pemetaan kepatuhan terhadap standar **OWASP API Security Top 10**:
-
-1. **OWASP API1: Broken Object Level Authorization (BOLA/IDOR)**
-   - Proteksi ketat pada pengaksesan rekening antar-nasabah. Jika Nasabah A mencoba menembak ID Rekening milik Nasabah B, sistem sengaja merespons dengan kode **404 Not Found (bukan 403 Forbidden)** untuk mencegah kebocoran informasi keberadaan data (*resource enumeration*). Dibuktikan via pengujian `nasabah_cannotAccessAnotherCustomersAccount_idor`.
-
-2. **OWASP API2: Broken Authentication**
-   - Penanganan brute-force pada login. Pesan kegagalan login disamakan baik untuk kondisi "Username Tidak Ditemukan" maupun "Password Salah". Proses enkripsi *BCrypt* tetap dieksekusi secara artifisial meskipun pengguna tidak terdaftar di database untuk menjaga konsistensi waktu respons (*timing attack protection*).
-
-3. **OWASP API3: Broken Object Property Level Authorization (Mass Assignment)**
-   - Endpoint registrasi mandiri nasabah diproteksi penuh dari manipulasi properti request body. Upaya menyisipkan parameter `"role": "OPERATOR"` atau `"role": "AUDITOR"` secara ilegal akan diabaikan dan otomatis gagal melalui skenario uji `register_cannotEscalateRole_viaRequestBody`.
-
-4. **OWASP A09: Security Logging and Monitoring**
-   - Implementasi tabel `audit_logs` yang bersifat *append-only* (dilindungi trigger database) untuk mencatat aktivitas krusial (*Actor, Action, Timestamp, Source IP*). 
-   - **Desain Transaksi Audit**:
-     - *Atomik dengan Bisnis*: Log sukses (`TRANSFER`, `DEPOSIT`) dibungkus dalam transaksi database yang sama sehingga ikut ter-rollback jika operasi gagal (mencegah log palsu).
-     - *Transaksi Terpisah (Requires New)*: Log krusial kegagalan (`REJECTED`, `ACCESS_DENIED`, `LOGIN_FAILED`) dipaksa tetap tersimpan ke database walaupun transaksi utama mengalami kegagalan/rollback untuk kebutuhan forensik keamanan.
-
-### Keterbatasan Keamanan Sistem saat Ini (Trade-off)
-- **Mekanisme Brute Force**: Belum mengimplementasikan *rate limiting* atau penguncian akun sementara pada kegagalan login berulang.
-- **Stateless Token Invalidation**: Menggunakan arsitektur JWT *stateless* murni dengan masa aktif 30 menit. Token yang aktif tidak dapat dicabut paksa dari sisi server sebelum masa kedaluwarsa habis (*blacklist* belum diterapkan).
-- **Verifikasi Asal IP**: IP Client dibaca langsung dari properti koneksi dasar (`remoteAddr`) tanpa memvalidasi header `X-Forwarded-For` yang rentan terhadap *spoofing* di belakang struktur *reverse proxy*.
-
-
-### Hasil Eksperimen Validasi RBAC (Role-Based Access Control)
-Untuk memastikan kebijakan hak akses berjalan konsisten pada runtime, dilakukan simulasi bypass hak akses menggunakan Swagger UI:
-- **Skenario Uji**: Akun dengan Role `NASABAH` mencoba menembak endpoint internal operator (`POST /api/deposits`) untuk melakukan setoran mandiri.
-- **Hasil Runtime**: Spring Security berhasil mengintercept request secara real-time dan mengembalikan respons **403 Forbidden** dengan pesan *"Anda tidak memiliki akses untuk aksi ini"*. Hal ini memvalidasi efektivitas isolasi tugas (*segregation of duties*) antar-role dalam sistem.
-
-## Deteksi Anomali (Rule Engine) (Minggu 5)
-
-CERMAT memakai pendekatan **post-transaction monitoring**: transaksi tetap dieksekusi, lalu dievaluasi
-oleh serangkaian aturan di dalam transaksi database yang sama. Jika ada aturan yang terpicu, transaksi
-ditandai `FLAGGED` dan masuk antrean tinjauan operator.
-
-| Aturan | Pemicu | Parameter default |
-|---|---|---|
-| `HIGH_AMOUNT` | Nominal melebihi batas | `max_amount = 100.000.000` |
-| `VELOCITY` | Terlalu banyak transfer keluar dalam jendela waktu | `max_count = 5`, `window_seconds = 60` |
-| `NEW_PAYEE_BIG` | Penerima baru dengan nominal besar | `min_amount = 20.000.000` |
-
-Keputusan desain:
-- **Logika di kode, parameter di database.** Operator mengubah ambang batas atau menonaktifkan aturan lewat
-  `PUT /api/rules/{code}` tanpa deploy ulang. Setiap perubahan tercatat di audit log (nilai sebelum dan sesudah).
-- **Klien tidak melihat status `FLAGGED`.** Memberi tahu pelaku bahwa ia terdeteksi hanya membantunya menghindar.
-- **Evaluasi VELOCITY aman dari balapan** karena rekening asal sudah dikunci (`SELECT ... FOR UPDATE`) sebelum aturan dijalankan.
-- **Parameter rusak = arahkan ke tinjauan manusia**, bukan meloloskan transaksi secara diam-diam.
-- **Setoran dari kas sistem tidak dipantau.**
-- **Tinjauan:** `CLEARED` (wajar) atau `CONFIRMED` (fraud; rekening pengirim dibekukan). Tinjauan atomik: dua operator
-  yang meninjau bersamaan tidak bisa sama-sama berhasil.
-
-## Future Roadmap (Rencana Pengembangan Lanjutan)
-
-- **Pre-transaction hold:** transaksi mencurigakan ditahan berstatus `PENDING` dan baru dieksekusi setelah
-  disetujui operator. Lebih ketat, tetapi membutuhkan status dana tertahan (*pending/hold*) dan alur kedaluwarsa.
-- **Maker-checker untuk perubahan aturan:** perubahan ambang batas harus disetujui operator kedua.
-- **Pemantauan setoran** dan pelaporan transaksi mencurigakan ke format regulator.
-- **Cache aturan** dengan invalidasi saat operator mengubah aturan (saat ini dibaca dari DB tiap transfer).
-- **Refresh token dan pencabutan token**, serta **rate limiting login**.
-- **Memecah rekening kas sistem** untuk menghilangkan hot row, dibuktikan dengan benchmark.
-- **Pembersihan idempotency key kedaluwarsa** lewat job terjadwal.
-
-## Rekonsiliasi Otomatis (Minggu 6)
-
-Operator mengunggah file CSV laporan mitra, lalu CERMAT mencocokkannya dengan ledger internal untuk
-**satu rekening mitra (settlement) pada satu periode** (maksimal 31 hari, batas hari mengikuti WIB).
-
-Format CSV: kolom `reference_no` dan `amount` (urutan bebas, huruf besar/kecil bebas).
-
-| Hasil | Arti |
-|---|---|
-| `MATCH` | Referensi ada di kedua sisi dengan nominal sama |
-| `AMOUNT_DIFF` | Referensi ada di kedua sisi, nominal berbeda (ditampilkan selisihnya) |
-| `MISSING_INTERNAL` | Ada di file mitra, tidak ada di ledger kami |
-| `MISSING_PARTNER` | Ada di ledger kami, tidak ada di file mitra |
-| `DUPLICATE_PARTNER` | Referensi muncul lebih dari sekali di file mitra |
-
-Keamanan unggahan (file dari pihak luar tidak dipercaya):
-- **Batas ukuran 2 MB** dan **20.000 baris**, diperiksa di level server dan di service.
-- **Whitelist ketat** untuk `reference_no` (`A-Z 0-9 _ -`) dan `amount` (angka positif, maks 2 desimal).
-  Ini sekaligus menolak awalan `= + - @` yang dipakai pada serangan **CSV/formula injection**.
-- Nama file disanitasi, ekstensi wajib `.csv`, tidak ada file yang ditulis ke disk.
-- **File yang persis sama** (SHA-256) untuk rekening dan periode yang sama ditolak (409), mencegah proses ganda.
-- Seluruh proses atomik (batch + temuan + audit log dalam satu transaksi database).
-- Hanya OPERATOR yang boleh mengunggah. AUDITOR boleh membaca hasilnya.
-
-Keterbatasan yang diketahui: belum ada penanganan *cut-off* (transaksi yang jatuh di tepi periode antara dua sistem),
-belum ada ekspor laporan ke CSV/PDF, dan belum ada alur tindak lanjut per temuan.
-
-## Future Roadmap (tambahan)
-- **Cut-off handling:** tandai selisih yang disebabkan perbedaan waktu pencatatan di tepi periode.
-- **Ekspor laporan temuan** ke CSV (dengan sanitasi sel agar aman dibuka di Excel).
-- **Alur tindak lanjut** per temuan (assign, catatan, status selesai).
-- **Pencocokan jamak** (satu setoran mitra untuk beberapa transaksi) dan toleransi selisih.
-- **Unggah asinkron** untuk file sangat besar.
-
-## Hardening (Minggu 7)
-
-### 1. Hot row kas sistem: dari 1 menjadi 16 shard
-**Masalah.** Setiap setoran mengunci baris `KAS-SISTEM` (`SELECT ... FOR UPDATE`). Dengan satu baris, seluruh
-setoran antre satu per satu, berapa pun jumlah thread.
-
-**Solusi.** Kas dipecah menjadi 16 rekening bertipe `SYSTEM`. Shard dipilih dari hash idempotency key,
-sehingga key yang sama selalu ke shard yang sama dan key berbeda tersebar merata. Hash isi request memakai token
-`CASH` (bukan id shard), jadi replay tetap dikenali sebagai request yang sama. Total kas = jumlah saldo seluruh
-shard, dan invarian "jumlah semua saldo = 0" tetap berlaku (dibuktikan test).
-
-**Bukti (benchmark, 400 setoran, 10 thread, laptop pengembangan):**
+## Benchmark setoran (kas sistem 1 shard vs 16 shard)
+400 setoran, 10 thread, laptop pengembangan spesifikasi rendah (satu kali jalan).
 
 | Konfigurasi | Waktu total | Throughput | Latensi rata-rata | p95 |
 |---|---|---|---|---|
-| 1 shard (perilaku lama) | 3029 ms | 132.1 setoran/detik | 73.6 ms | 222 ms |
-| 16 shard | 2314 ms | 172.9 setoran/detik | 49.0 ms | 232 ms |
+| 1 shard | 3029 ms | 132,1 /detik | 73,6 ms | 222 ms |
+| 16 shard | 2314 ms | 172,9 /detik | 49,0 ms | 232 ms |
 
-Cara menjalankan:
-`mvn test -Dtest=CashBenchmarkTest -Dcermat.benchmark=true -Dcermat.cash.shards=1` lalu ulangi dengan `=16`.
-Catatan jujur: pada mesin dengan sedikit core, hasil dibatasi CPU database sehingga peningkatannya lebih kecil
-daripada di server multi-core. Benchmark ini mengukur pengurangan antrean kunci, bukan kapasitas produksi.
+Throughput naik ±31% dan latensi rata-rata turun ±33%. **p95 tidak membaik**: di mesin kecil, CPU dan disk database ikut
+menjadi batas sehingga latensi ekor tidak ikut turun. Angka ini mengukur berkurangnya antrean kunci, bukan kapasitas produksi.
 
-### 2. Kedaluwarsa idempotency key
-**Masalah.** Key bertambah tanpa batas, dan tidak bisa dihapus karena `transactions` mereferensikannya (FK).
+## Dokumentasi
+- [Arsitektur, ERD, dan alur transfer](docs/ARCHITECTURE.md)
 
-**Solusi.** Relasi dibalik: `idempotency_keys.transaction_id` menunjuk ke transaksi, dan `transactions` tidak lagi
-bergantung pada key. Job terjadwal (tiap jam) menghapus key lebih dari 24 jam, per 1.000 baris agar tidak menahan
-kunci tabel. Setelah kedaluwarsa, key yang sama dianggap request baru; ledger tidak tersentuh.
+## Screenshots
+<p align="center">
+  <img src="docs/screenshots/swagger-dashboard.png" alt="Swagger Dashboard" width="100%">
+  <br><em>Visualisasi seluruh antarmuka endpoint API CERMAT terbagi dalam pemisahan modul Otentikasi, Akun, Ledger, Rekonsiliasi, dan Kontrol Fraud.</em>
+</p>
 
-### 3. Rate limiting login
-Pembatas sliding window dua lapis: **5 kegagalan / 5 menit per (username + IP)** dan **50 kegagalan / 5 menit per IP**.
-Kunci memakai pasangan (username, IP) agar penyerang tidak bisa mengunci akun korban dari IP lain (DoS lewat lockout).
-Pengecekan dilakukan sebelum BCrypt sehingga penyerang tidak bisa membuang CPU server. Respons 429 menyertakan
-`Retry-After`. Kunci tercatat sekali di audit log (`LOGIN_LOCKED`). Disimpan di memori (cukup untuk satu instance);
-untuk beberapa instance perlu penyimpanan bersama.
+<p align="center">
+  <img src="docs/screenshots/swagger-403-forbidden.png" alt="Frobidden Access" width="100%">
+  <br><em>Bukti proteksi Role-Based Access Control (RBAC) pada runtime saat akun dengan hak akses `NASABAH` mencoba mengeksekusi fungsi internal milik `OPERATOR`.</em>
+</p>
 
-### 4. Lain-lain
-- Aplikasi menolak start di profil `prod` jika masih memakai secret JWT bawaan development.
+<p align="center">
+  <img src="docs/screenshots/jacoco-coverage-report.png" alt="Jacoco Coverage Report" width="100%">
+  <br><em>Hasil eksekusi kompilasi pengujian otomatis menunjukkan persentase penutupan proteksi baris logika kode menyentuh angka 92% (Total 104 test hijau).</em>
+</p>
 
-## Future Roadmap (pembaruan)
-- Pembatas login di Redis agar berlaku lintas instance; rate limiting juga untuk endpoint register.
-- Refresh token + pencabutan token (saat ini token stateless berlaku 30 menit).
-- Cache aturan fraud dengan invalidasi, pemantauan setoran, maker-checker perubahan aturan.
-- Menyesuaikan jumlah shard kas secara dinamis (saat ini tetap 16, diubah lewat konfigurasi).
+## Keamanan (ringkas)
+Default API tertutup; IDOR dijawab 404; pendaftaran mandiri tidak menerima `role`; pembatas login (user+IP dan IP);
+JWT HS256 dengan validasi `exp` dan `issuer`; unggahan CSV divalidasi whitelist (anti formula injection) dengan batas ukuran;
+audit log mencatat sukses maupun penolakan. Detail di dokumen arsitektur.
+
+## Keterbatasan yang diketahui
+- Pembatas login tersimpan di memori (satu instance); untuk beberapa instance perlu Redis
+- Token JWT tidak bisa dicabut sebelum kedaluwarsa (30 menit)
+- Aturan fraud dibaca dari database tiap transfer (tanpa cache); setoran tidak dipantau; perubahan aturan belum maker-checker
+- Rekonsiliasi belum menangani cut-off di tepi periode dan belum ada ekspor laporan
+- Secret JWT bawaan hanya untuk development (aplikasi menolak start di profil `prod` jika tidak diganti)
+- IP diambil dari koneksi langsung; di belakang reverse proxy perlu penyesuaian
+
+## Future Roadmap (Rencana Pengembangan Lanjutan)
+- **Pre-transaction hold:** transaksi mencurigakan ditahan `PENDING` sampai disetujui operator
+- Refresh token dan pencabutan token; rate limiting di Redis (termasuk endpoint register)
+- Maker-checker untuk perubahan aturan; pemantauan setoran; cache aturan dengan invalidasi
+- Rekonsiliasi: cut-off handling, ekspor laporan, alur tindak lanjut per temuan, pencocokan jamak
+- Observability (metrics, tracing) dan pola outbox untuk notifikasi
