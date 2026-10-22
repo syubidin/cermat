@@ -1,13 +1,11 @@
 package id.cermat.transaction;
 
 import java.time.Instant;
-import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface LedgerTransactionRepository extends JpaRepository<LedgerTransaction, UUID> {
-    Optional<LedgerTransaction> findByIdemKey(String idemKey);
 
     /** Untuk aturan VELOCITY. */
     long countByFromAccountIdAndCreatedAtAfter(UUID fromAccountId, Instant since);

@@ -17,7 +17,7 @@ public class LedgerTransaction {
     @Column(name = "reference_no", nullable = false, unique = true, length = 40)
     private String referenceNo;
 
-    @Column(name = "idem_key", nullable = false, unique = true, length = 100)
+    @Column(name = "idem_key", nullable = false, length = 100)
     private String idemKey;
 
     @Column(name = "from_account_id", nullable = false, updatable = false)

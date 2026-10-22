@@ -31,9 +31,6 @@ import id.cermat.rule.RuleHit;
 @Service
 public class TransferService {
 
-    /** Rekening kas internal bank (di-seed oleh migrasi V2). */
-    public static final UUID SYSTEM_CASH_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
-
     private final AccountRepository accounts;
     private final LedgerTransactionRepository transactions;
     private final LedgerEntryRepository entries;
@@ -41,10 +38,12 @@ public class TransferService {
     private final AuditService audit;
     private final RuleEngine ruleEngine;
     private final FraudFlagRepository fraudFlags;
+    private final CashPool cashPool;
 
     public TransferService(AccountRepository accounts, LedgerTransactionRepository transactions,
                            LedgerEntryRepository entries, IdempotencyKeyRepository idempotencyKeys,
-                           AuditService audit, RuleEngine ruleEngine, FraudFlagRepository fraudFlags) {
+                           AuditService audit, RuleEngine ruleEngine, FraudFlagRepository fraudFlags,
+                           CashPool cashPool) {
         this.accounts = accounts;
         this.transactions = transactions;
         this.entries = entries;
@@ -52,6 +51,7 @@ public class TransferService {
         this.audit = audit;
         this.ruleEngine = ruleEngine;
         this.fraudFlags = fraudFlags;
+        this.cashPool = cashPool;
     }
 
     /**
@@ -68,7 +68,11 @@ public class TransferService {
             throw new BusinessException("Rekening asal dan tujuan tidak boleh sama");
         }
         BigDecimal amount = rawAmount.setScale(2);
-        String hash = Hashing.sha256(fromId + "|" + toId + "|" + amount.toPlainString()
+        boolean fromCash = cashPool.isCash(fromId);
+
+        // Shard kas mana pun yang dipakai, isi request yang SAMA harus menghasilkan hash yang SAMA.
+        String fromPart = fromCash ? "CASH" : fromId.toString();
+        String hash = Hashing.sha256(fromPart + "|" + toId + "|" + amount.toPlainString()
                 + "|" + (description == null ? "" : description));
 
         // 1) Klaim key secara atomik. Jika sudah ada: jawab ulang, JANGAN proses lagi.
@@ -90,9 +94,7 @@ public class TransferService {
         if (!from.getCurrency().equals(to.getCurrency())) throw new BusinessException("Mata uang berbeda");
 
         // 4) Deteksi anomali (post-transaction monitoring): transaksi TETAP berjalan, hanya ditandai.
-        //    Setoran dari kas sistem tidak dipantau. Rekening asal sedang terkunci, jadi hitungan
-        //    riwayat (VELOCITY) konsisten walau ada request paralel dari rekening yang sama.
-        List<RuleHit> hits = fromId.equals(SYSTEM_CASH_ID)
+        List<RuleHit> hits = fromCash
                 ? List.of()
                 : ruleEngine.evaluate(new RuleContext(fromId, toId, amount, Instant.now()));
         TxStatus status = hits.isEmpty() ? TxStatus.SUCCESS : TxStatus.FLAGGED;
@@ -101,11 +103,13 @@ public class TransferService {
         from.debit(amount);
         to.credit(amount);
 
-        // 6) Tulis transaksi + dua entri ledger (debit dan kredit selalu seimbang).
+        // 6) Tulis transaksi + dua entri ledger (debit dan kredit selalu seimbang),
+        //    lalu tautkan key idempotency ke transaksi ini.
         LedgerTransaction tx = transactions.saveAndFlush(new LedgerTransaction(
                 newReference(), idemKey, fromId, toId, amount, status, description));
         entries.save(new LedgerEntry(tx.getId(), fromId, Direction.DEBIT, amount, from.getBalance()));
         entries.save(new LedgerEntry(tx.getId(), toId, Direction.CREDIT, amount, to.getBalance()));
+        idempotencyKeys.attachTransaction(idemKey, tx.getId());
 
         // 7) Flag fraud + jejak audit, di transaksi yang sama.
         if (!hits.isEmpty()) {
@@ -114,17 +118,20 @@ public class TransferService {
                     "rules", hits.stream().map(RuleHit::ruleCode).toList(),
                     "amount", amount.toPlainString()));
         }
-        audit.record(fromId.equals(SYSTEM_CASH_ID) ? "DEPOSIT" : "TRANSFER", "transaction",
+        audit.record(fromCash ? "DEPOSIT" : "TRANSFER", "transaction",
                 tx.getId().toString(),
                 Map.of("referenceNo", tx.getReferenceNo(), "from", fromId.toString(),
                         "to", toId.toString(), "amount", amount.toPlainString()));
         return new TransferResult(tx, false);
     }
 
-    /** Setoran = transfer dari kas sistem ke rekening nasabah. */
+    /** Setoran = transfer dari salah satu shard kas sistem ke rekening nasabah. */
     @Transactional
     public TransferResult deposit(String idemKey, UUID accountId, BigDecimal amount, String description) {
-        return transfer(idemKey, SYSTEM_CASH_ID, accountId, amount,
+        if (idemKey == null || idemKey.isBlank() || idemKey.length() > 100) {
+            throw new IllegalArgumentException("Idempotency-Key wajib diisi (maks 100 karakter)");
+        }
+        return transfer(idemKey, cashPool.shardFor(idemKey), accountId, amount,
                 description == null ? "Setoran" : description);
     }
 
@@ -134,7 +141,10 @@ public class TransferService {
         if (!existing.getRequestHash().equals(hash)) {
             throw new BusinessException("Idempotency-Key sudah dipakai untuk request yang berbeda");
         }
-        LedgerTransaction tx = transactions.findByIdemKey(idemKey)
+        if (existing.getTransactionId() == null) {
+            throw new IllegalStateException("Key belum tertaut ke transaksi: " + idemKey);
+        }
+        LedgerTransaction tx = transactions.findById(existing.getTransactionId())
                 .orElseThrow(() -> new IllegalStateException("Transaksi untuk key tidak ditemukan: " + idemKey));
         return new TransferResult(tx, true);
     }

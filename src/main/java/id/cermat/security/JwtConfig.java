@@ -8,6 +8,8 @@ import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
@@ -24,10 +26,14 @@ public class JwtConfig {
 
     private final SecretKey key;
 
-    public JwtConfig(@Value("${cermat.jwt.secret}") String secret) {
+    public JwtConfig(@Value("${cermat.jwt.secret}") String secret, Environment env) {
         byte[] bytes = secret.getBytes(StandardCharsets.UTF_8);
         if (bytes.length < 32) {
             throw new IllegalStateException("cermat.jwt.secret minimal 32 byte (HS256)");
+        }
+        if (env.acceptsProfiles(Profiles.of("prod")) && secret.startsWith("dev-only")) {
+            throw new IllegalStateException(
+                    "Secret JWT bawaan development tidak boleh dipakai di profil prod. Set environment variable JWT_SECRET.");
         }
         this.key = new SecretKeySpec(bytes, "HmacSHA256");
     }

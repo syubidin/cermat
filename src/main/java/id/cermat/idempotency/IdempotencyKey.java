@@ -1,6 +1,7 @@
 package id.cermat.idempotency;
 
 import java.time.Instant;
+import java.util.UUID;
 
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
@@ -22,6 +23,10 @@ public class IdempotencyKey {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
+    /** Transaksi hasil request ini. Diisi di transaksi DB yang sama dengan pembuatan transaksinya. */
+    @Column(name = "transaction_id")
+    private UUID transactionId;
+
     protected IdempotencyKey() {}
 
     public IdempotencyKey(String key, String requestHash) {
@@ -31,4 +36,5 @@ public class IdempotencyKey {
 
     public String getKey() { return key; }
     public String getRequestHash() { return requestHash; }
+    public UUID getTransactionId() { return transactionId; }
 }

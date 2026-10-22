@@ -85,6 +85,14 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.CONFLICT, "Data sedang diubah proses lain, silakan coba lagi");
     }
 
+    @ExceptionHandler(TooManyRequestsException.class)
+    public ResponseEntity<ApiError> tooManyRequests(TooManyRequestsException e) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", String.valueOf(e.getRetryAfterSeconds()))
+                .body(new ApiError(HttpStatus.TOO_MANY_REQUESTS.value(), "Too Many Requests",
+                        "Terlalu banyak percobaan login. Coba lagi nanti.", Instant.now()));
+    }
+
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<ApiError> tooLarge(MaxUploadSizeExceededException e) {
         return build(HttpStatus.PAYLOAD_TOO_LARGE, "Ukuran file melebihi batas 2 MB");

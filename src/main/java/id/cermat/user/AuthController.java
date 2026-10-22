@@ -4,6 +4,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 import io.swagger.v3.oas.annotations.Operation;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -38,10 +39,11 @@ public class AuthController {
         return UserResponse.from(users.register(req.username(), req.password(), Role.NASABAH));
     }
 
-    @Operation(summary = "Login, mendapatkan JWT")
+    @Operation(summary = "Login, mendapatkan JWT (dibatasi: percobaan gagal berulang mengembalikan 429)")
     @PostMapping("/login")
-    public TokenResponse login(@Valid @RequestBody LoginRequest req) {
-        var token = auth.login(req.username(), req.password());
+    public TokenResponse login(@Valid @RequestBody LoginRequest req, HttpServletRequest http) {
+        // remoteAddr sengaja dipakai, bukan X-Forwarded-For yang bisa dipalsukan klien.
+        var token = auth.login(req.username(), req.password(), http.getRemoteAddr());
         return new TokenResponse(token.value(), "Bearer", token.expiresInSeconds());
     }
 }

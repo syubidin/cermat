@@ -141,3 +141,49 @@ belum ada ekspor laporan ke CSV/PDF, dan belum ada alur tindak lanjut per temuan
 - **Alur tindak lanjut** per temuan (assign, catatan, status selesai).
 - **Pencocokan jamak** (satu setoran mitra untuk beberapa transaksi) dan toleransi selisih.
 - **Unggah asinkron** untuk file sangat besar.
+
+## Hardening (Minggu 7)
+
+### 1. Hot row kas sistem: dari 1 menjadi 16 shard
+**Masalah.** Setiap setoran mengunci baris `KAS-SISTEM` (`SELECT ... FOR UPDATE`). Dengan satu baris, seluruh
+setoran antre satu per satu, berapa pun jumlah thread.
+
+**Solusi.** Kas dipecah menjadi 16 rekening bertipe `SYSTEM`. Shard dipilih dari hash idempotency key,
+sehingga key yang sama selalu ke shard yang sama dan key berbeda tersebar merata. Hash isi request memakai token
+`CASH` (bukan id shard), jadi replay tetap dikenali sebagai request yang sama. Total kas = jumlah saldo seluruh
+shard, dan invarian "jumlah semua saldo = 0" tetap berlaku (dibuktikan test).
+
+**Bukti (benchmark, 400 setoran, 10 thread, laptop pengembangan):**
+
+| Konfigurasi | Waktu total | Throughput | Latensi rata-rata | p95 |
+|---|---|---|---|---|
+| 1 shard (perilaku lama) | 3029 ms | 132.1 setoran/detik | 73.6 ms | 222 ms |
+| 16 shard | 2314 ms | 172.9 setoran/detik | 49.0 ms | 232 ms |
+
+Cara menjalankan:
+`mvn test -Dtest=CashBenchmarkTest -Dcermat.benchmark=true -Dcermat.cash.shards=1` lalu ulangi dengan `=16`.
+Catatan jujur: pada mesin dengan sedikit core, hasil dibatasi CPU database sehingga peningkatannya lebih kecil
+daripada di server multi-core. Benchmark ini mengukur pengurangan antrean kunci, bukan kapasitas produksi.
+
+### 2. Kedaluwarsa idempotency key
+**Masalah.** Key bertambah tanpa batas, dan tidak bisa dihapus karena `transactions` mereferensikannya (FK).
+
+**Solusi.** Relasi dibalik: `idempotency_keys.transaction_id` menunjuk ke transaksi, dan `transactions` tidak lagi
+bergantung pada key. Job terjadwal (tiap jam) menghapus key lebih dari 24 jam, per 1.000 baris agar tidak menahan
+kunci tabel. Setelah kedaluwarsa, key yang sama dianggap request baru; ledger tidak tersentuh.
+
+### 3. Rate limiting login
+Pembatas sliding window dua lapis: **5 kegagalan / 5 menit per (username + IP)** dan **50 kegagalan / 5 menit per IP**.
+Kunci memakai pasangan (username, IP) agar penyerang tidak bisa mengunci akun korban dari IP lain (DoS lewat lockout).
+Pengecekan dilakukan sebelum BCrypt sehingga penyerang tidak bisa membuang CPU server. Respons 429 menyertakan
+`Retry-After`. Kunci tercatat sekali di audit log (`LOGIN_LOCKED`). Disimpan di memori (cukup untuk satu instance);
+untuk beberapa instance perlu penyimpanan bersama.
+
+### 4. Lain-lain
+- Aplikasi menolak start di profil `prod` jika masih memakai secret JWT bawaan development.
+
+## Future Roadmap (pembaruan)
+- Pembatas login di Redis agar berlaku lintas instance; rate limiting juga untuk endpoint register.
+- Refresh token + pencabutan token (saat ini token stateless berlaku 30 menit).
+- Cache aturan fraud dengan invalidasi, pemantauan setoran, maker-checker perubahan aturan.
+- Menyesuaikan jumlah shard kas secara dinamis (saat ini tetap 16, diubah lewat konfigurasi).
