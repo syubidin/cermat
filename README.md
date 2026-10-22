@@ -26,7 +26,7 @@
 
 ---
 
-## 📌 Executive Summary (Untuk Recruiter & Engineering Lead)
+## 📌 Executive Summary
 
 Dalam sistem finansial skala besar, data uang tidak boleh sekadar disimpan di kolom `balance` biasa. Kerentanan jaringan, request berulang (*network retry*), dan lonjakan konkurensi sering kali memicu saldo negatif, transaksi siluman, atau kebocoran dana perusahaan. 
 
