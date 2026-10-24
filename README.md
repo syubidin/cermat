@@ -5,6 +5,7 @@
 
 > *"Setiap rupiah tercatat dengan presisi; tidak ada yang selisih, hilang, atau berlipat ganda."*
 
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Railway.app-0B0D0E?style=flat&logo=railway&logoColor=white)](https://cermat-production.up.railway.app/swagger-ui.html)
 [![CI Build](https://github.com/syubidin/cermat/actions/workflows/ci.yml/badge.svg)](https://github.com/syubidin/cermat/actions/workflows/ci.yml)
 [![Java 17](https://img.shields.io/badge/Java-17-ED8B00?logo=openjdk&logoColor=white)](https://openjdk.org/projects/jdk/17/)
 [![Spring Boot 3.3.5](https://img.shields.io/badge/Spring%20Boot-3.3.5-6DB33F?logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
@@ -13,14 +14,17 @@
 [![JaCoCo Coverage](https://img.shields.io/badge/JaCoCo%20Coverage-92%25-green?logo=target&logoColor=white)](#-pengujian--pembuktian-invarian)
 [![Tests Passing](https://img.shields.io/badge/Tests-104%20Passing-brightgreen?logo=checkmarx&logoColor=white)](#-pengujian--pembuktian-invarian)
 [![Docker Ready](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](#-menjalankan-aplikasi)
-[![Swagger UI](https://img.shields.io/badge/OpenAPI%203.0-Swagger%20UI-85EA2D?logo=swagger&logoColor=black)](#-dokumentasi-api-interaktif-swagger-ui)
+[![Swagger UI](https://img.shields.io/badge/OpenAPI%203.0-Swagger%20UI-85EA2D?logo=swagger&logoColor=black)](https://cermat-production.up.railway.app/swagger-ui.html)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 <br/>
 
 **CERMAT** adalah simulasi *mini core-banking ledger* & sistem pembayaran tingkat produksi (*production-grade financial engine*) yang dirancang khusus untuk memecahkan problem fundamental rekayasa finansial terdistribusi: **Race Condition, Double-Spending, Deadlock, Hot-Row Contention, dan Data Inconsistency**.
 
-[Fitur Utama](#-fitur-utama--arsitektur-pertahanan) • [Arsitektur Sistem](#-arsitektur-sistem) • [Benchmark Performa](#-benchmark-skalabilitas-kas-sharding) • [Pengujian & Invarian](#-pengujian--pembuktian-invarian) • [Dokumentasi API](#-dokumentasi-api-interaktif-swagger-ui) • [Deployment](#-panduan-deployment-live-demo) • [Linimasa](#-linimasa-pengerjaan-8-minggu)
+[🌐 **Live Demo (Swagger UI)**](https://cermat-production.up.railway.app/swagger-ui.html) • [Fitur Utama](#-fitur-utama--arsitektur-pertahanan) • [Arsitektur Sistem](#-arsitektur-sistem) • [Benchmark Performa](#-benchmark-skalabilitas-kas-sharding) • [Pengujian & Invarian](#-pengujian--pembuktian-invarian) • [Dokumentasi API](#-dokumentasi-api-interaktif-swagger-ui) • [Deployment](#-panduan-deployment-live-demo) • [Linimasa](#-linimasa-pengerjaan-8-minggu)
+
+> 🚀 **Coba Langsung**: Akses antarmuka interaktif OpenAPI/Swagger di **[https://cermat-production.up.railway.app/swagger-ui.html](https://cermat-production.up.railway.app/swagger-ui.html)**  
+> *(Daftar akun via `/api/auth/register`, salin token JWT dari `/api/auth/login`, lalu klik **Authorize** untuk menguji transfer dan rekonsiliasi).*
 
 </div>
 
@@ -251,24 +255,39 @@ Akses dokumentasi OpenAPI interaktif pada:
 
 ## 🌐 Panduan Deployment (Live Demo)
 
-CERMAT dirancang *cloud-ready* (12-Factor App) dan dapat di-deploy ke berbagai penyedia cloud gratis atau komersial:
+CERMAT dirancang *cloud-ready* (12-Factor App) dan telah di-deploy secara kontainerisasi di cloud infrastructure:
 
-### 1. Deploy 1-Klik di Render.com
-Repository ini telah dilengkapi berkas konfigurasi [`render.yaml`](render.yaml):
+### 1. Production Deployment di Railway.app (Live Demo)
+Aplikasi CERMAT saat ini aktif dan berjalan di infrastruktur **Railway.app**:
+* **URL Live Demo (Swagger UI)**: 👉 **[https://cermat-production.up.railway.app/swagger-ui.html](https://cermat-production.up.railway.app/swagger-ui.html)**
+* **Arsitektur Produksi**:
+  - **Service `cermat`**: Kontainer Docker multi-stage (Eclipse Temurin 17 JRE Alpine) yang berjalan secara non-root demi keamanan sistem.
+  - **Service `Postgres`**: Database PostgreSQL terkelola dengan *persistent volume* untuk menjamin data transaksi, skema ledger, dan audit log tidak hilang saat kontainer restart.
+  - **Private Mesh Networking**: Aplikasi terhubung ke database melalui jaringan internal berkecepatan tinggi (`postgres.railway.internal`).
+  - **Memory & Resource Tuning**: Dikonfigurasi dengan flag container JVM `-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -Xss512k` untuk stabilitas performa pada tier hemat daya.
+
+**Variabel Lingkungan (Environment Variables) di Railway**:
+| Variabel | Sumber Nilai di Railway | Deskripsi |
+|---|---|---|
+| `SPRING_DATASOURCE_URL` | `jdbc:postgresql://${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/${{Postgres.PGDATABASE}}` | Koneksi database JDBC internal |
+| `SPRING_DATASOURCE_USERNAME` | `${{Postgres.PGUSER}}` | User postgres terisolasi |
+| `SPRING_DATASOURCE_PASSWORD` | `${{Postgres.PGPASSWORD}}` | Kredensial rahasia database |
+| `PORT` | `8080` | Port listen server HTTP |
+| `JWT_SECRET` | *(Minimal 32 karakter rahasia)* | Kunci simetris penandatanganan token JWT |
+
+---
+
+### 2. Alternatif: Deploy 1-Klik di Render.com
+Repository ini juga menyertakan blueprint Infrastructure-as-Code [`render.yaml`](render.yaml):
 1. Buat akun di [Render.com](https://render.com).
 2. Pilih menu **Blueprints** -> **New Blueprint Instance**.
 3. Hubungkan repository GitHub: `syubidin/cermat`.
-4. Render akan secara otomatis membaca `render.yaml` untuk menyiapkan:
-   - 1 Database PostgreSQL terkelola gratis.
-   - 1 Web Service Docker gratis yang menjalankan CERMAT.
-5. URL Live Demo instan Anda akan aktif (contoh: `https://cermat-api.onrender.com/swagger-ui.html`).
+4. Render akan secara otomatis menyiapkan 1 Database PostgreSQL terkelola dan 1 Web Service Docker gratis.
 
-### 2. Deploy via Railway / Koyeb / Fly.io
-CERMAT menyediakan multi-stage [`Dockerfile`](Dockerfile) yang siap dibangun (*buildpack-free*). Cukup set environment variables berikut pada dashboard cloud Anda:
-* `SPRING_DATASOURCE_URL`: `jdbc:postgresql://<HOST>:<PORT>/<DATABASE>`
-* `SPRING_DATASOURCE_USERNAME`: `<DB_USER>`
-* `SPRING_DATASOURCE_PASSWORD`: `<DB_PASSWORD>`
-* `JWT_SECRET`: `<Minimal 32 Karakter Acak>`
+---
+
+### 3. Deploy di Koyeb / Fly.io / VPS
+CERMAT menyediakan multi-stage [`Dockerfile`](Dockerfile) standar OCI. Cukup sediakan database PostgreSQL dan pasang environment variable `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`, serta `JWT_SECRET`.
 
 ---
 
