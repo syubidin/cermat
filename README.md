@@ -21,7 +21,7 @@
 
 **CERMAT** adalah simulasi *mini core-banking ledger* & sistem pembayaran tingkat produksi (*production-grade financial engine*) yang dirancang khusus untuk memecahkan problem fundamental rekayasa finansial terdistribusi: **Race Condition, Double-Spending, Deadlock, Hot-Row Contention, dan Data Inconsistency**.
 
-[🌐 **Live Demo (Swagger UI)**](https://cermat-production.up.railway.app/swagger-ui.html) • [Fitur Utama](#-fitur-utama--arsitektur-pertahanan) • [Arsitektur Sistem](#-arsitektur-sistem) • [Benchmark Performa](#-benchmark-skalabilitas-kas-sharding) • [Pengujian & Invarian](#-pengujian--pembuktian-invarian) • [Dokumentasi API](#-dokumentasi-api-interaktif-swagger-ui) • [Deployment](#-panduan-deployment-live-demo) • [Linimasa](#-linimasa-pengerjaan-8-minggu)
+[Fitur Utama](#-fitur-utama--arsitektur-pertahanan) • [Arsitektur Sistem](#-arsitektur-sistem) • [Benchmark Performa](#-benchmark-skalabilitas-kas-sharding) • [Pengujian & Invarian](#-pengujian--pembuktian-invarian) • [Dokumentasi API](#-dokumentasi-api-interaktif-swagger-ui) • [Deployment](#-panduan-deployment-live-demo) • [Linimasa](#-linimasa-pengerjaan-8-minggu)
 
 > 🚀 **Coba Langsung**: Akses antarmuka interaktif OpenAPI/Swagger di **[https://cermat-production.up.railway.app/swagger-ui.html](https://cermat-production.up.railway.app/swagger-ui.html)**  
 > *(Daftar akun via `/api/auth/register`, salin token JWT dari `/api/auth/login`, lalu klik **Authorize** untuk menguji transfer dan rekonsiliasi).*
